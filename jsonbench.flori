@@ -1,0 +1,22 @@
+import "core"
+import "json"
+import "std/fileio"
+import "std/time"
+
+fn main() {
+  jsontxt:= read_file("bench.json")
+  # println(jsontxt)
+  start := get_current_milliseconds()
+  for (i : range(0, 1000)) {
+    in_region(int(1024*1024)) {
+      jstrm := new_jsonstream(jsontxt)
+      jsonobj := parse_json(jstrm)
+      # println(obj(((jsonobj!0)!s"_id").value).strval)
+      # println(obj(((jsonobj!0!s"tags").value!0)).strval)
+      # println(((jsonobj!0)!s"name").value.strval)
+    }
+  }
+  end := get_current_milliseconds()
+  println(end - start, "ms")
+}
+main()
