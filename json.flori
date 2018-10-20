@@ -16,79 +16,6 @@ fn none[T]() Option[T] {
   opt
 }
 
-type TrieKey {
-  s String
-  pos Int
-}
-
-type Trie[T] {
-  value RPtr[T]
-  next Array[128, RPtr[Trie[T]]]
-}
-
-fn new_trie[T]() Trie[T] {
-  var t Trie[T]
-  for (i : range(0, 127)) {
-    t.next!i = null_rptr[Trie[T]]()
-  }
-  t
-}
-
-fn insert[T](t ref Trie[T], key ref TrieKey, value T) {
-  if (length(key.s) > key.pos) {
-    nextpos := cast[Int](key.s!key.pos)
-    if (is_null(t.next!nextpos)) {
-      t.next!nextpos = alloc[Trie[T]]()
-      unref(to_ptr(t.next!nextpos)) = new_trie[T]()
-    }
-    key.pos += 1
-    insert(unref(to_ptr(t.next!nextpos)), key, value)
-  } else {
-    t.value = alloc[T]()
-    unref(to_ptr(t.value)) = value
-  }
-}
-fn insert[T](t ref Trie[T], s String, value T) {
-  key := init(TrieKey){s; int(0)}
-  insert(t, key, value)
-}
-
-fn find[T](t Trie[T], key ref TrieKey) Option[T] {
-  if (length(key.s) <= key.pos) {
-    some(unref(to_ptr(t.value)))
-  } else {
-    nextpos := cast[Int](key.s!key.pos)
-    if (is_null(t.next!nextpos)) {
-      none[T]()
-    } else {
-      key.pos += 1
-      find(unref(to_ptr(t.next!nextpos)), key)
-    }
-  }
-}
-fn find[T](t Trie[T], s String) Option[T] {
-  key := init(TrieKey){s; int(0)}
-  find(t, key)
-}
-
-type JsonStream {
-  s String
-  pos Int
-}
-
-enum JsonKind {
-  JSON_OBJECT
-  JSON_ARRAY
-  JSON_STRING
-  JSON_INT
-  JSON_BOOL
-}
-
-type Pair[T] {
-  key String
-  value T
-}
-
 enum DStringKind {
   DSTRING_STATIC
   DSTRING_NORMAL
@@ -132,6 +59,34 @@ fn print(s DString) {
   }
 }
 
+type JsonStream {
+  s String
+  pos Int
+}
+
+enum JsonKind {
+  JSON_OBJECT
+  JSON_ARRAY
+  JSON_STRING
+  JSON_INT
+  JSON_BOOL
+}
+
+enum JsonErrorKind {
+  JSON_SUCCESS
+  JSON_FAILURE
+}
+
+type Pair[T] {
+  key String
+  value T
+}
+
+type JsonError {
+  kind JsonErrorKind
+  msg String
+}
+
 type JsonObj {
   kind JsonKind
   union {
@@ -144,6 +99,12 @@ type JsonObj {
 }
 typedef JsonPair Pair[RPtr[JsonObj]]
 typedef JsonValue RPtr[JsonObj]
+
+fn default_jsonerror() JsonError {
+  var err JsonError
+  err.kind = JSON_SUCCESS
+  err
+}
 
 fn new_jsonstream(s String) JsonStream {
   init(JsonStream){s; int(0)}
@@ -279,7 +240,7 @@ fn is_ident(s ref JsonStream, id String) Bool {
   true
 }
 
-fn parse_ident(s ref JsonStream) JsonValue {
+fn parse_ident(s ref JsonStream, err ref JsonError) JsonValue {
   if (is_ident(s, s"true")) {
     s.pos += 4
     json := new_jsonvalue(JSON_BOOL)
@@ -291,20 +252,27 @@ fn parse_ident(s ref JsonStream) JsonValue {
     obj(json).boolval = false
     json
   } else {
-    json := new_jsonvalue(JSON_OBJECT)
+    err.kind = JSON_FAILURE
+    err.msg = s"unexpected identifier."
+    json := new_jsonvalue(JSON_BOOL)
     json
   }
 }
 
-fn parse_json(s ref JsonStream) JsonValue $[decl]
+fn parse_json(s ref JsonStream, err ref JsonError) JsonValue $[decl]
 
-fn parse_object(s ref JsonStream) JsonValue {
+fn parse_object(s ref JsonStream, err ref JsonError) JsonValue {
   next(s)
-  #trie := new_trie[JsonValue]()
   v := vec[JsonPair]()
   
   while (true) {
     skip_spaces(s)
+    if (is_end(s)) {
+      err.kind = JSON_FAILURE
+      err.msg = s"expected `} token for end of object."
+      var dummy JsonValue
+      return(dummy)
+    }
     if (getchar(s) == c"}") {
       next(s)
       break()
@@ -315,25 +283,38 @@ fn parse_object(s ref JsonStream) JsonValue {
     }
     key := parse_key(s)
     skip_spaces(s)
-    next(s) # c":"
+    if (next(s) != c":") {
+      err.kind = JSON_FAILURE
+      err.msg = s"expected `: token"
+      var dummy JsonValue
+      return(dummy)
+    }
     skip_spaces(s)
-    value := parse_json(s)
+    value := parse_json(s, err)
+    if (err.kind == JSON_FAILURE) {
+      var dummy JsonValue
+      return(dummy)
+    }
     push(v, init(JsonPair){key; value})
-    #insert(trie, key, value)
   }
 
   json := new_jsonvalue(JSON_OBJECT)
   obj(json).pairs = v
-  # obj(json).trie = trie
   json
 }
 
-fn parse_array(s ref JsonStream) JsonValue {
+fn parse_array(s ref JsonStream, err ref JsonError) JsonValue {
   next(s)
   v := vec[JsonValue]()
   
   while (true) {
     skip_spaces(s)
+    if (is_end(s)) {
+      err.kind = JSON_FAILURE
+      err.msg = s"expected `] token for end of array."
+      var dummy JsonValue
+      return(dummy)
+    }
     if (getchar(s) == c"]") {
       next(s)
       break()
@@ -342,7 +323,11 @@ fn parse_array(s ref JsonStream) JsonValue {
       next(s)
       skip_spaces(s)
     }
-    value := parse_json(s)
+    value := parse_json(s, err)
+    if (err.kind == JSON_FAILURE) {
+      var dummy JsonValue
+      return(dummy)
+    }
     push(v, value)
   }
 
@@ -351,7 +336,7 @@ fn parse_array(s ref JsonStream) JsonValue {
   json
 }
 
-fn parse_json(s ref JsonStream) JsonValue {
+fn parse_json(s ref JsonStream, err ref JsonError) JsonValue {
   skip_spaces(s)
   ch := getchar(s)
   if (ch == c"\"") {
@@ -359,11 +344,11 @@ fn parse_json(s ref JsonStream) JsonValue {
   } elif (isdigit(ch)) {
     parse_int(s)
   } elif (ch == c"{") {
-    parse_object(s)
+    parse_object(s, err)
   } elif (ch == c"[") {
-    parse_array(s)
+    parse_array(s, err)
   } else {
-    parse_ident(s)
+    parse_ident(s, err)
   }
 }
 
@@ -371,7 +356,6 @@ fn `!(json JsonValue, index Int) JsonValue {
   obj(json).vec!index
 }
 fn `!(json JsonValue, key String) Option[JsonValue] {
-  # find(obj(json).trie, key)
   for (i : range(0, length(obj(json).pairs))) {
     if ((obj(json).pairs!i).key == key) {
       return(some((obj(json).pairs!i).value))
@@ -379,38 +363,3 @@ fn `!(json JsonValue, key String) Option[JsonValue] {
   }
   none[JsonValue]()
 }
-
-# fn json_test() {
-#   in_region(1){
-#   s := new_jsonstream(s"\"yukari\"")
-#   obj := parse_json(s)
-#   println(cast[Int](obj(obj).kind))
-#   println(obj.strval)
-# 
-#   si := new_jsonstream(s"9")
-#   obji := parse_json(si)
-#   println(cast[Int](obj(obj).kind))
-#   println(obji.strval)
-# 
-#   s2 := new_jsonstream(s"{\"name\": \"akari\", \"type\": \"voiceroid\"}")
-#   obj2 := parse_json(s2)
-#   println(cast[Int](obj2.kind))
-#   opt := obj2!s"name"
-#   println(opt.value.strval)
-#   opt2 := obj2!s"type"
-#   println("sss!")
-#   println(opt2.value.strval)
-#   println("eee!")
-# 
-#   s3 := new_jsonstream(s"{\"is\":true, \"can\":false}")
-#   obj3 := parse_json(s3)
-#   opt3 := obj3!s"is"
-#   println(opt3.value.boolval)
-#   opt4 := obj3!s"can"
-#   println(opt4.value.boolval)
-# 
-#   s4 := new_jsonstream(s"[\"a\", 1, 2, 3]")
-#   obj4 := parse_json(s4)
-#   }
-# }
-# json_test()

@@ -10,7 +10,8 @@ fn main() {
   for (i : range(0, 1000)) {
     in_region(int(1024*1024)) {
       jstrm := new_jsonstream(jsontxt)
-      jsonobj := parse_json(jstrm)
+      err := default_jsonerror()
+      jsonobj := parse_json(jstrm, err)
       # println(obj(((jsonobj!0)!s"_id").value).strval)
       # println(obj(((jsonobj!0!s"tags").value!0)).strval)
       # println(((jsonobj!0)!s"name").value.strval)

@@ -1,0 +1,43 @@
+import "core"
+import "json"
+
+fn json_test() {
+  err := default_jsonerror()
+
+  s := new_jsonstream(s"\"yukari\"")
+  obj := parse_json(s, err)
+  println(cast[Int](obj(obj).kind))
+  println(obj(obj).strval)
+
+  si := new_jsonstream(s"9")
+  obji := parse_json(si, err)
+  println(cast[Int](obj(obj).kind))
+  println(obj(obji).strval)
+
+  s2 := new_jsonstream(s"{\"name\": \"akari\", \"type\": \"voiceroid\"}")
+  obj2 := parse_json(s2, err)
+  println(cast[Int](obj(obj2).kind))
+  opt := obj2!s"name"
+  println(obj(opt.value).strval)
+  opt2 := obj2!s"type"
+  println("sss!")
+  println(obj(opt2.value).strval)
+  println("eee!")
+
+  s3 := new_jsonstream(s"{\"is\":true, \"can\":false}")
+  obj3 := parse_json(s3, err)
+  opt3 := obj3!s"is"
+  println(obj(opt3.value).boolval)
+  opt4 := obj3!s"can"
+  println(obj(opt4.value).boolval)
+
+  s4 := new_jsonstream(s"[\"a\", 1, 2, 3]")
+  obj4 := parse_json(s4, err)
+
+  s5 := new_jsonstream(s"{\"unknown\" 9}")
+  obj5 := parse_json(s5, err)
+  if (err.kind == JSON_FAILURE) {
+    println(err.msg)
+  }
+}
+json_test()
